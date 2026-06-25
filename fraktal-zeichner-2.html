@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fraktal-Zeichner</title>
+<style>
+  :root {
+    --bg: #1b1d23;
+    --panel: #24262e;
+    --panel-border: #34373f;
+    --accent: #5b8cff;
+    --accent-dark: #3a63cc;
+    --text: #e8e9ee;
+    --text-dim: #9a9ea8;
+    --danger: #e2574c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 24px 16px 48px;
+  }
+  h1 {
+    font-size: 22px;
+    font-weight: 600;
+    margin: 0 0 4px;
+    letter-spacing: 0.2px;
+  }
+  p.subtitle {
+    color: var(--text-dim);
+    font-size: 14px;
+    margin: 0 0 20px;
+    text-align: center;
+    max-width: 560px;
+    line-height: 1.5;
+  }
+  .layout {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+    width: 100%;
+    max-width: 1180px;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .controls {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    width: 220px;
+  }
+  .control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .control-group label {
+    font-size: 13px;
+    color: var(--text-dim);
+    display: flex;
+    justify-content: space-between;
+  }
+  .control-group input[type="range"] {
+    width: 100%;
+  }
+  button {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.05s ease;
+  }
+  button:hover { background: var(--accent-dark); }
+  button:active { transform: scale(0.97); }
+  button.secondary {
+    background: transparent;
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+  }
+  button.secondary:hover {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+  .canvas-wrap {
+    position: relative;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--panel-border);
+    background: #0e0f13;
+    touch-action: none;
+  }
+  canvas {
+    display: block;
+    cursor: crosshair;
+  }
+  .hint {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--text-dim);
+    font-size: 14px;
+    text-align: center;
+    pointer-events: none;
+    user-select: none;
+  }
+  .footer-row {
+    display: flex;
+    gap: 10px;
+  }
+  .footer-row button { flex: 1; }
+  .draw-hint {
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.5;
+    background: #1b1d23;
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .value-pill {
+    font-weight: 600;
+    color: var(--text);
+  }
+  .legend {
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.5;
+    border-top: 1px solid var(--panel-border);
+    padding-top: 12px;
+    margin-top: 4px;
+  }
+  select {
+    background: #1b1d23;
+    color: var(--text);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 8px;
+    font-size: 13px;
+  }
+  @media (max-width: 720px) {
+    .controls { width: 100%; max-width: 480px; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Fraktal-Zeichner</h1>
+<p class="subtitle">
+  Klicke Punkt für Punkt, um eine beliebige Linie zu definieren. Diese "Erzeuger-Linie" wird wie bei der
+  Koch-Kurve auf jedes ihrer eigenen Segmente angewendet — wiederholt, über mehrere Stufen. Das Ergebnis
+  ist ein selbstähnliches Fraktal.
+</p>
+
+<div class="layout">
+
+  <div class="panel canvas-wrap" id="canvasWrap">
+    <canvas id="canvas" width="800" height="800"></canvas>
+    <div class="hint" id="hint">Klick für jeden Punkt der Linie.<br>Doppelklick oder Enter zum Abschließen.</div>
+  </div>
+
+  <div class="panel controls">
+    <div class="draw-hint">
+      Klicke Punkt für Punkt, um deine Linie zu zeichnen. Mit "Fertig" (oder Doppelklick/Enter)
+      schließt du die Linie ab und das Fraktal wird berechnet.
+    </div>
+
+    <div class="footer-row">
+      <button id="finishBtn">Fertig</button>
+      <button id="undoBtn" class="secondary">Punkt zurück</button>
+    </div>
+
+    <div class="control-group">
+      <label>Iterationsstufe <span class="value-pill" id="levelOut">3</span></label>
+      <input type="range" id="level" min="0" max="6" step="1" value="3">
+    </div>
+
+    <div class="control-group">
+      <label>Linienstärke <span class="value-pill" id="strokeOut">1.5</span></label>
+      <input type="range" id="stroke" min="0.5" max="4" step="0.1" value="1.5">
+    </div>
+
+    <div class="control-group">
+      <label>Farbschema</label>
+      <select id="colorMode">
+        <option value="mono">Einfarbig</option>
+        <option value="gradient">Verlauf</option>
+        <option value="rainbow">Regenbogen</option>
+      </select>
+    </div>
+
+    <div class="footer-row">
+      <button id="restartBtn" class="secondary">Zurücksetzen</button>
+    </div>
+    <button id="downloadBtn">Als PNG speichern</button>
+
+    <div class="legend">
+      Tipp: Eine simple gezackte Linie (z. B. ein "/\") erzeugt nach mehreren Stufen
+      etwas Ähnliches wie die Koch-Kurve. Geschlossene Formen erzeugen interessante,
+      wiederkehrende Muster.
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const hint = document.getElementById('hint');
+  const levelSlider = document.getElementById('level');
+  const levelOut = document.getElementById('levelOut');
+  const strokeSlider = document.getElementById('stroke');
+  const strokeOut = document.getElementById('strokeOut');
+  const colorModeSel = document.getElementById('colorMode');
+  const restartBtn = document.getElementById('restartBtn');
+  const downloadBtn = document.getElementById('downloadBtn');
+
+  const finishBtn = document.getElementById('finishBtn');
+  const undoBtn = document.getElementById('undoBtn');
+
+  const W = canvas.width;
+  const H = canvas.height;
+
+  // Raw points the user placed by clicking (in canvas pixel coords), as {x, y}
+  let rawPoints = [];
+  let hasGenerator = false;
+
+  // Cache of fractal iteration point arrays: iterations[0] = original (normalized),
+  // iterations[k] = result after k applications of the generator to itself.
+  let iterations = [];
+  const MAX_LEVEL = 6;
+
+  function getPos(evt) {
+    const rect = canvas.getBoundingClientRect();
+    // touchend has nothing in evt.touches (finger already lifted) -
+    // the last known position lives in evt.changedTouches instead.
+    let clientX, clientY;
+    if (evt.changedTouches && evt.changedTouches.length) {
+      clientX = evt.changedTouches[0].clientX;
+      clientY = evt.changedTouches[0].clientY;
+    } else if (evt.touches && evt.touches.length) {
+      clientX = evt.touches[0].clientX;
+      clientY = evt.touches[0].clientY;
+    } else {
+      clientX = evt.clientX;
+      clientY = evt.clientY;
+    }
+    return {
+      x: (clientX - rect.left) * (canvas.width / rect.width),
+      y: (clientY - rect.top) * (canvas.height / rect.height)
+    };
+  }
+
+  function addPoint(evt) {
+    if (hasGenerator) return; // already finished, must restart first
+    evt.preventDefault();
+    const p = getPos(evt);
+    rawPoints.push(p);
+    hint.style.display = 'none';
+    redrawRaw();
+  }
+
+  function finishLine() {
+    if (hasGenerator) return;
+    if (rawPoints.length < 2) return;
+    hasGenerator = true;
+    buildIterations();
+    render();
+  }
+
+  function undoPoint() {
+    if (hasGenerator) return;
+    rawPoints.pop();
+    if (rawPoints.length === 0) hint.style.display = 'block';
+    redrawRaw();
+  }
+
+  let lastTouchTime = 0;
+
+  canvas.addEventListener('click', (evt) => {
+    // Skip synthetic click that mobile browsers fire shortly after touchend -
+    // we already handled the tap ourselves.
+    if (Date.now() - lastTouchTime < 500) return;
+    addPoint(evt);
+  });
+  canvas.addEventListener('dblclick', (evt) => {
+    evt.preventDefault();
+    finishLine();
+  });
+
+  let lastTapTime = 0;
+  canvas.addEventListener('touchend', (evt) => {
+    // single tap = add point
+    if (evt.cancelable) evt.preventDefault();
+    lastTouchTime = Date.now();
+    const now = Date.now();
+    if (now - lastTapTime < 350) {
+      // double-tap: finish the line instead of adding another point
+      finishLine();
+    } else {
+      addPoint(evt);
+    }
+    lastTapTime = now;
+  }, { passive: false });
+
+  // Prevent the page from scrolling/zooming while drawing on the canvas
+  canvas.addEventListener('touchstart', (evt) => {
+    if (evt.cancelable) evt.preventDefault();
+  }, { passive: false });
+  canvas.addEventListener('touchmove', (evt) => {
+    if (evt.cancelable) evt.preventDefault();
+  }, { passive: false });
+
+  window.addEventListener('keydown', (evt) => {
+    if (evt.key === 'Enter') finishLine();
+    if (evt.key === 'Backspace' || evt.key === 'Escape') {
+      if (evt.key === 'Backspace') undoPoint();
+    }
+  });
+
+  finishBtn.addEventListener('click', finishLine);
+  undoBtn.addEventListener('click', undoPoint);
+
+  function redrawRaw() {
+    ctx.clearRect(0, 0, W, H);
+    ctx.strokeStyle = '#5b8cff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    rawPoints.forEach((p, i) => {
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+    ctx.stroke();
+    rawPoints.forEach((p, i) => {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+      ctx.fillStyle = i === 0 ? '#1d9e75' : '#5b8cff';
+      ctx.fill();
+    });
+  }
+
+  // ---- Fractal math -------------------------------------------------
+  // This mirrors the logic of the original Python script:
+  // The user-drawn polyline ("geom") is treated as a generator. Its start
+  // and end point define a baseline vector. For every segment of the
+  // current shape, the *entire* generator (scaled+rotated+translated to
+  // match that segment) is substituted in place of the straight segment.
+  // Doing this repeatedly produces a Koch-curve-style self-similar fractal.
+
+  function normalize(geom) {
+    // shift so first point is at origin
+    const x0 = geom[0].x;
+    const y0 = geom[0].y;
+    return geom.map(p => ({ x: p.x - x0, y: p.y - y0 }));
+  }
+
+  function complexSub(a, b) { return { x: a.x - b.x, y: a.y - b.y }; }
+  function complexAdd(a, b) { return { x: a.x + b.x, y: a.y + b.y }; }
+  function complexMul(a, b) {
+    return { x: a.x * b.x - a.y * b.y, y: a.x * b.y + a.y * b.x };
+  }
+  function complexDiv(a, b) {
+    const denom = b.x * b.x + b.y * b.y;
+    if (denom === 0) return { x: 0, y: 0 };
+    return {
+      x: (a.x * b.x + a.y * b.y) / denom,
+      y: (a.y * b.x - a.x * b.y) / denom
+    };
+  }
+  function complexAbs(a) { return Math.hypot(a.x, a.y); }
+
+  // Apply the generator shape to a single segment [p0 -> p1] of a larger shape.
+  // Returns the array of points (excluding the duplicate of p0 at index 0 is kept,
+  // matching the original script's behaviour of including the first generator point).
+  function applyGeneratorToSegment(generator, normVec, length, p0, p1) {
+    const segVec = complexSub(p1, p0);
+    const scaleRot = complexDiv(segVec, normVec); // = segVec / normVec
+    const out = [];
+    for (let i = 0; i < generator.length; i++) {
+      // p0 + generator[i] * scaleRot / length
+      const scaled = complexMul(generator[i], scaleRot);
+      const term = { x: scaled.x / length, y: scaled.y / length };
+      out.push(complexAdd(p0, term));
+    }
+    return out;
+  }
+
+  // Given the current shape's points, replace every segment with a
+  // generator-shaped copy, producing the next iteration's point list.
+  function nextIteration(currentShape, generator, normVec, length) {
+    const result = [];
+    for (let i = 0; i < currentShape.length - 1; i++) {
+      const segPoints = applyGeneratorToSegment(
+        generator, normVec, length, currentShape[i], currentShape[i + 1]
+      );
+      for (const pt of segPoints) result.push(pt);
+    }
+    return result;
+  }
+
+  function buildIterations() {
+    const geom = normalize(rawPoints);
+    const length = complexAbs(complexSub(geom[geom.length - 1], geom[0]));
+    const normVec = (() => {
+      const v = complexSub(geom[geom.length - 1], geom[0]);
+      const m = complexAbs(v);
+      if (m === 0) return { x: 1, y: 0 };
+      return { x: v.x / m, y: v.y / m };
+    })();
+
+    iterations = [geom];
+    let current = geom;
+    for (let lvl = 1; lvl <= MAX_LEVEL; lvl++) {
+      current = nextIteration(current, geom, normVec, length);
+      iterations.push(current);
+    }
+  }
+
+  // ---- Rendering ------------------------------------------------------
+
+  function strokeColorForIndex(i, total, mode) {
+    if (mode === 'mono') return '#e8e9ee';
+    if (mode === 'gradient') {
+      const t = total <= 1 ? 0 : i / (total - 1);
+      const c1 = [91, 140, 255];
+      const c2 = [226, 87, 76];
+      const r = Math.round(c1[0] + (c2[0] - c1[0]) * t);
+      const g = Math.round(c1[1] + (c2[1] - c1[1]) * t);
+      const b = Math.round(c1[2] + (c2[2] - c1[2]) * t);
+      return `rgb(${r},${g},${b})`;
+    }
+    // rainbow
+    const hue = (i / Math.max(total, 1)) * 300;
+    return `hsl(${hue}, 70%, 60%)`;
+  }
+
+  function render() {
+    ctx.clearRect(0, 0, W, H);
+    if (!hasGenerator || iterations.length === 0) {
+      hint.style.display = 'block';
+      return;
+    }
+    hint.style.display = 'none';
+
+    const level = parseInt(levelSlider.value, 10);
+    const points = iterations[Math.min(level, iterations.length - 1)];
+
+    // center the shape in the canvas based on its bounding box
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    points.forEach(p => {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    });
+    const shapeW = Math.max(maxX - minX, 1);
+    const shapeH = Math.max(maxY - minY, 1);
+    const margin = 60;
+    const scale = Math.min((W - margin * 2) / shapeW, (H - margin * 2) / shapeH, 1e6);
+    const offX = (W - shapeW * scale) / 2 - minX * scale;
+    const offY = (H - shapeH * scale) / 2 - minY * scale;
+
+    const lineWidth = parseFloat(strokeSlider.value);
+    const colorMode = colorModeSel.value;
+    const segCount = points.length - 1;
+
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    for (let i = 0; i < segCount; i++) {
+      const a = points[i];
+      const b = points[i + 1];
+      ctx.beginPath();
+      ctx.moveTo(a.x * scale + offX, a.y * scale + offY);
+      ctx.lineTo(b.x * scale + offX, b.y * scale + offY);
+      ctx.strokeStyle = strokeColorForIndex(i, segCount, colorMode);
+      ctx.lineWidth = lineWidth;
+      ctx.stroke();
+    }
+  }
+
+  // ---- Controls ---------------------------------------------------
+
+  levelSlider.addEventListener('input', () => {
+    levelOut.textContent = levelSlider.value;
+    render();
+  });
+  strokeSlider.addEventListener('input', () => {
+    strokeOut.textContent = parseFloat(strokeSlider.value).toFixed(1);
+    render();
+  });
+  colorModeSel.addEventListener('change', render);
+
+  restartBtn.addEventListener('click', () => {
+    rawPoints = [];
+    iterations = [];
+    hasGenerator = false;
+    ctx.clearRect(0, 0, W, H);
+    hint.style.display = 'block';
+  });
+
+  downloadBtn.addEventListener('click', () => {
+    const link = document.createElement('a');
+    link.download = 'fraktal.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  });
+
+  levelOut.textContent = levelSlider.value;
+  strokeOut.textContent = parseFloat(strokeSlider.value).toFixed(1);
+})();
+</script>
+
+</body>
+</html>
